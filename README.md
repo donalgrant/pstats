@@ -54,7 +54,7 @@ Either one installs the `stats` and `findgen` commands. Upgrade later with
 `pip install stats-cli` inside a virtual environment.
 
 To install the latest unreleased code from GitHub instead, use
-`pipx install git+https://github.com/donalgrant/pstats.git`.
+`pipx install git+https://github.com/donalgrant/stats-cli.git`.
 
 To install from a local checkout for development, use
 `python -m venv .venv && .venv/bin/pip install -e '.[dev]'`.
