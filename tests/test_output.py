@@ -58,3 +58,21 @@ def test_wide_values_keep_alignment():
     out = render(["x"], ["a", "b"], [[1.0], [-1.234567e-100]], OutputOptions(precision=6))
     widths = {len(line) for line in out.splitlines()}
     assert len(widths) == 1
+
+
+def test_json_transpose():
+    out = json.loads(render(STATS, COLS, VALUES, OutputOptions(format="json", transpose=True)))
+    assert out == [{"stat": "n", "a": 3, "b": 3}, {"stat": "mean", "a": 2.5, "b": 1 / 3}]
+
+
+def test_json_transpose_grouped_labels():
+    out = json.loads(
+        render(
+            ["n"],
+            [("B", "x"), ("V", "x")],
+            [[1.0], [2.0]],
+            OutputOptions(format="json", transpose=True),
+            ("band", "column"),
+        )
+    )
+    assert out == [{"stat": "n", "B:x": 1, "V:x": 2}]

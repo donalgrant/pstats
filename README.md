@@ -113,7 +113,7 @@ never treated as data columns themselves.
 |---|---|
 | `-nh`, `--no-header` | omit the header line |
 | `-F FMT`, `--format FMT` | `table` (the default), `csv`, `tsv` or `json` |
-| `-T`, `--transpose` | one row per statistic instead of one per column |
+| `-T`, `--transpose` | one row per statistic instead of one per column. In json this gives one record per statistic. |
 | `-L`, `--labels` / `--no-labels` | force the row-label column on or off |
 | `-p N`, `--precision N` | significant digits (the default is 4 in tables and full precision in csv/tsv) |
 | `--fmt PRINTF` | printf-style number format, such as `%.3f` |
@@ -333,8 +333,10 @@ $ seq 1 50 | awk '{print $1*$1 % 37}' | stats n mean spark
 `--ci LEVEL` adds a `STAT_lo` and `STAT_hi` column after each statistic.
 These give a percentile-bootstrap interval, computed as follows:
 
-1. Rows are resampled with replacement `--bootstrap` times (default 1000).
-   Each row's weight and reference value travel with it.
+1. The rows that have a value are resampled with replacement `--bootstrap`
+   times (default 1000). Each row's weight and reference value travel with
+   it. Rows with missing values are left out first, so every resample is the
+   same size as the data behind the estimate.
 2. The statistic is recomputed on each resample.
 3. The interval is the central LEVEL% of those values.
 
@@ -346,8 +348,7 @@ $ seq 1 50 | awk '{print $1*$1 % 37}' | stats --ci 95 --seed 1 mean median
      17.86      14.62      20.96         16         11       25.5
 ```
 
-Use `--seed` to get the same intervals on every run. Within a group, every
-column sees the same resampled rows. The cost grows with the number of rows
+Use `--seed` to get the same intervals on every run. The cost grows with the number of rows
 times the number of resamples: about 1.6 s for 100k rows and 1000 resamples,
 and there's a warning when it's likely to be slow.
 

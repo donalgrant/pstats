@@ -66,6 +66,15 @@ def histogram(x: np.ndarray, edges: np.ndarray, weights: np.ndarray | None = Non
     return counts
 
 
+def _usable(values, weights, ref) -> np.ndarray:
+    ok = ~np.isnan(values)
+    if weights is not None:
+        ok &= ~np.isnan(weights) & (weights > 0)
+    if ref is not None:
+        ok &= ~np.isnan(ref)
+    return ok
+
+
 def bootstrap(
     requests: Sequence[Request],
     values: np.ndarray,
@@ -78,16 +87,41 @@ def bootstrap(
 ) -> list[tuple[float, float]]:
     """Percentile-bootstrap confidence intervals for each (numeric) request.
 
-    Whole rows are resampled with replacement (the value together with its
-    weight and reference value); the interval is the central ``level``
-    percent of the resampled statistic. The same ``seed`` gives the same
-    resamples, so every column in a group sees the same resampled rows.
+    Only usable rows are resampled: rows with a value (and a valid weight),
+    and for statistics against the reference column (-x) also a reference
+    value, so every resample has the same size as the data behind the
+    estimate. Each row keeps its weight and reference value. The interval is
+    the central ``level`` percent of the resampled statistic; the same
+    ``seed`` gives the same resamples.
     """
+    out: list[tuple[float, float] | None] = [None] * len(requests)
+    for cross in (False, True):
+        which = [k for k, r in enumerate(requests) if r.stat.cross == cross]
+        if not which:
+            continue
+        r_ref = ref if cross else None
+        ok = _usable(values, weights, r_ref)
+        intervals = _bootstrap_rows(
+            [requests[k] for k in which],
+            values[ok],
+            weights[ok] if weights is not None else None,
+            mode,
+            r_ref[ok] if r_ref is not None else None,
+            level,
+            resamples,
+            seed,
+        )
+        for k, ci in zip(which, intervals, strict=True):
+            out[k] = ci
+    return out
+
+
+def _bootstrap_rows(requests, values, weights, mode, ref, level, resamples, seed):
     rng = np.random.default_rng(seed)
     m = values.size
-    results = np.full((resamples, len(requests)), np.nan)
     if m == 0:
         return [(np.nan, np.nan)] * len(requests)
+    results = np.full((resamples, len(requests)), np.nan)
     for b in range(resamples):
         i = rng.integers(0, m, m)
         s = Sample(

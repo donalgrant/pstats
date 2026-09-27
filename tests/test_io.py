@@ -114,3 +114,19 @@ def test_concat_keeps_keys():
     opts = ReadOptions(group="1")
     a, b = read_table("A 1\n", opts), read_table("B 2\n", opts)
     assert concat([a, b]).keys.tolist() == ["A", "B"]
+
+
+@pytest.mark.parametrize(
+    "opts",
+    [ReadOptions(), ReadOptions(roles={"ref": "1"}), ReadOptions(group="1")],
+)
+def test_wider_rows_add_columns_whatever_the_options(opts):
+    t = read_table("1 2 3\n4 5\n6 7 8 9\n", opts)
+    assert t.labels[-1] == "4" and t.data.shape[0] == 3
+
+
+def test_group_column_text_with_ragged_rows_and_roles():
+    t = read_table("band x y\nB 1 2\nV 3\nB 5 6 7\n", ReadOptions(group="band", roles={"ref": "x"}))
+    assert t.keys.tolist() == ["B", "V", "B"]
+    assert t.labels == ["y", "4"]
+    np.testing.assert_array_equal(t.roles["ref"], [1, 3, 5])

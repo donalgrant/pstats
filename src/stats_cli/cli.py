@@ -432,7 +432,7 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
                     info(f"{label}: skipped {y.size - sample.nrows} row(s) with missing values")
                 row = [r(sample) for r in requests]
                 if args.ci is not None:
-                    # same seed per group: every column sees the same resampled rows
+                    # one seed per group, so reruns with --seed are reproducible
                     cis = iter(
                         analysis.bootstrap(
                             numeric, y, w, mode, x, args.ci, args.bootstrap, [seed, g]

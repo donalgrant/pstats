@@ -133,12 +133,23 @@ def read_table(text: str, opts: ReadOptions | None = None, warn: Warn = _no_warn
         role_idx[role] = _single_column(spec, names, width)
     group_idx = _single_column(opts.group, names, width) if opts.group else None
     special = [*role_idx.values(), *([group_idx] if group_idx is not None else [])]
-    if special:
-        cols = [i for i in (cols if cols is not None else range(width)) if i not in special]
+    no_data_left = "no data columns left besides the -x/-w/-e/-g columns"
+    if special and cols is None:
+        # No -c: every column is data (the widest row decides how many, as without
+        # special columns), except the special ones. The text key column is skipped.
+        text_cols = [group_idx] if group_idx is not None else []
+        raw = _parse_body(body, first_lineno, opts, None, warn, text_cols)
+        cols = [i for i in range(raw.shape[1]) if i not in special]
         if not cols:
-            raise DataError("no data columns left besides the -x/-w/-e/-g columns")
-    use = cols + list(role_idx.values()) if cols is not None else None
-    data = _parse_body(body, first_lineno, opts, use, warn)
+            raise DataError(no_data_left)
+        data = raw[:, cols + list(role_idx.values())]
+    else:
+        if special:
+            cols = [i for i in cols if i not in special]
+            if not cols:
+                raise DataError(no_data_left)
+        use = cols + list(role_idx.values()) if cols is not None else None
+        data = _parse_body(body, first_lineno, opts, use, warn)
     if data.shape[0] == 0:
         raise DataError("no input data" + (" after the header row" if has_header else ""))
     if opts.strict and np.isnan(data).any():
@@ -187,8 +198,14 @@ def _read_keys(body: str, delimiter: str | None, col: int) -> np.ndarray:
 
 
 def _parse_body(
-    body: str, first_lineno: int, opts: ReadOptions, cols: list[int] | None, warn: Warn
+    body: str,
+    first_lineno: int,
+    opts: ReadOptions,
+    cols: list[int] | None,
+    warn: Warn,
+    text_cols: Sequence[int] = (),
 ) -> np.ndarray:
+    """Parse the numeric body; ``text_cols`` (only with ``cols=None``) are read as NaN."""
     try:
         # numpy's C parser: fast for the common rectangular, all-numeric case
         with warnings.catch_warnings():
@@ -200,13 +217,19 @@ def _parse_body(
                 comments="#",
                 delimiter=opts.delimiter,
                 usecols=cols,
+                converters=dict.fromkeys(text_cols, lambda tok: np.nan) or None,
             )
     except ValueError:
-        return _parse_slow(body, first_lineno, opts, cols, warn)
+        return _parse_slow(body, first_lineno, opts, cols, warn, text_cols)
 
 
 def _parse_slow(
-    body: str, first_lineno: int, opts: ReadOptions, cols: list[int] | None, warn: Warn
+    body: str,
+    first_lineno: int,
+    opts: ReadOptions,
+    cols: list[int] | None,
+    warn: Warn,
+    text_cols: Sequence[int] = (),
 ) -> np.ndarray:
     def convert(tok: str, lineno: int) -> float:
         try:
@@ -227,7 +250,9 @@ def _parse_slow(
             # only the selected columns are converted, so other columns may hold text
             fields = [fields[c] for c in range(min(len(fields), max(cols) + 1))]
             fields = [f if i in cols else "0" for i, f in enumerate(fields)]
-        rows.append([convert(tok, lineno) for tok in fields])
+        rows.append(
+            [np.nan if i in text_cols else convert(tok, lineno) for i, tok in enumerate(fields)]
+        )
     width = max(map(len, rows), default=0)
     short = sum(len(r) < width for r in rows)
     if short:

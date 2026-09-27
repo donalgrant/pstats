@@ -78,3 +78,19 @@ def test_bootstrap_cross_stat_resamples_pairs():
 def test_bootstrap_empty():
     lo, hi = boot("mean", np.array([]))
     assert np.isnan(lo) and np.isnan(hi)
+
+
+def test_bootstrap_ignores_missing_rows():
+    x = np.array([1.0, np.nan, 2.0, np.nan, 3.0, np.nan])
+    assert boot("n", x) == (3, 3)  # every resample has the 3 usable rows
+    lo, hi = boot("mean", x)
+    assert 1 <= lo <= 2 <= hi <= 3
+
+
+def test_bootstrap_cross_uses_pairs_plain_uses_values():
+    x = np.array([0.0, 1, 2, 3, np.nan, 5, 6, 7])
+    y = np.array([0.0, 2, 4, 6, 8, np.nan, 12, 14])
+    reqs = [BUILTIN.resolve("n"), BUILTIN.resolve("slope")]
+    (n_ci, slope_ci) = analysis.bootstrap(reqs, y, None, None, x, 95, 200, 1)
+    assert n_ci == (7, 7)  # the plain stat keeps the row whose reference is missing
+    assert slope_ci == pytest.approx((2, 2))

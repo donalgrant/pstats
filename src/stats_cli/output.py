@@ -61,6 +61,10 @@ def render(
     """
     row_labels = [(lab,) if isinstance(lab, str) else tuple(lab) for lab in row_labels]
     if opts.format == "json":
+        if opts.transpose:  # one record per statistic, keyed by column label
+            keys = [":".join(lab) for lab in row_labels]
+            columns = list(zip(*values, strict=True)) if values else [()] * len(stat_labels)
+            return _json(keys, [(s,) for s in stat_labels], ("stat",), columns, opts.ascii)
         return _json(stat_labels, row_labels, label_titles, values, opts.ascii)
 
     fmt = _formatter(opts, 4 if opts.format == "table" else None)
