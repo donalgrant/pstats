@@ -39,13 +39,22 @@ prints 0 through 4).
 
 ## Install
 
-Requires Python 3.10+ and numpy. It's best installed as an isolated tool:
+Requires Python 3.10+. numpy is installed automatically. The package is
+published on [PyPI](https://pypi.org/project/stats-cli/) as `stats-cli`, and
+is best installed as an isolated command-line tool:
 
 ```console
-$ pipx install git+https://github.com/donalgrant/pstats.git
+$ pipx install stats-cli
 # or
-$ uv tool install git+https://github.com/donalgrant/pstats.git
+$ uv tool install stats-cli
 ```
+
+Either one installs the `stats` and `findgen` commands. Upgrade later with
+`pipx upgrade stats-cli` or `uv tool upgrade stats-cli`. You can also use
+`pip install stats-cli` inside a virtual environment.
+
+To install the latest unreleased code from GitHub instead, use
+`pipx install git+https://github.com/donalgrant/pstats.git`.
 
 To install from a local checkout for development, use
 `python -m venv .venv && .venv/bin/pip install -e '.[dev]'`.
