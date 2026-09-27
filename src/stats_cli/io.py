@@ -6,7 +6,7 @@ import io
 import sys
 import warnings
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -28,12 +28,14 @@ class Table:
     """Parsed input: ``data`` is rows x columns; ``labels`` names each column.
 
     ``named`` is true when the labels came from a header row (otherwise they
-    are the 1-based column numbers).
+    are the 1-based column numbers). ``roles`` holds the special columns
+    (reference, weights, errors) by role name; they are not in ``data``.
     """
 
     data: np.ndarray
     labels: list[str]
     named: bool = False
+    roles: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 @dataclass
@@ -42,6 +44,7 @@ class ReadOptions:
     header: str = "auto"  # "auto", "yes" or "no"
     columns: str | None = None  # a -c spec, e.g. "1,3-5" or "height,weight"
     strict: bool = False
+    roles: dict[str, str] = field(default_factory=dict)  # e.g. {"ref": "1", "weights": "w"}
 
 
 def _split(line: str, delimiter: str | None) -> list[str]:
@@ -122,18 +125,34 @@ def read_table(text: str, opts: ReadOptions | None = None, warn: Warn = _no_warn
     width = len(fields)
 
     cols = parse_columns(opts.columns, names, width) if opts.columns else None
-    data = _parse_body(body, first_lineno, opts, cols, warn)
+    role_idx: dict[str, int] = {}
+    for role, spec in opts.roles.items():
+        idx = parse_columns(spec, names, width)
+        if len(idx) != 1:
+            raise DataError(f"{spec!r} must name a single column")
+        role_idx[role] = idx[0]
+    if role_idx:
+        cols = [
+            i for i in (cols if cols is not None else range(width)) if i not in role_idx.values()
+        ]
+        if not cols:
+            raise DataError("no data columns left besides the -x/-w/-e columns")
+    use = cols + list(role_idx.values()) if cols is not None else None
+    data = _parse_body(body, first_lineno, opts, use, warn)
     if data.shape[0] == 0:
         raise DataError("no input data" + (" after the header row" if has_header else ""))
     if opts.strict and np.isnan(data).any():
         raise DataError("missing or NaN values present (--strict)")
 
+    roles = {role: data[:, len(cols) + k] for k, role in enumerate(role_idx)}
+    if cols is not None:
+        data = data[:, : len(cols)]
     idx = cols if cols is not None else range(data.shape[1])
     if names:
         labels = [names[i] if i < len(names) else str(i + 1) for i in idx]
     else:
         labels = [str(i + 1) for i in idx]
-    return Table(data, labels, named=bool(names))
+    return Table(data, labels, named=bool(names), roles=roles)
 
 
 def _parse_body(
@@ -225,4 +244,5 @@ def concat(tables: Sequence[Table], warn: Warn = _no_warn) -> Table:
         warn("inputs have different header names; using the first")
     base = (named[0] if named else max(tables, key=lambda t: len(t.labels))).labels
     labels = base + [str(i + 1) for i in range(len(base), width)]
-    return Table(np.vstack(parts), labels[:width], named=bool(named))
+    roles = {role: np.concatenate([t.roles[role] for t in tables]) for role in tables[0].roles}
+    return Table(np.vstack(parts), labels[:width], named=bool(named), roles=roles)

@@ -42,3 +42,4 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["SIM108"]  # if/else blocks are often clearer than long ternaries

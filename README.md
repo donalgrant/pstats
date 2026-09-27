@@ -79,6 +79,18 @@ Statistic names and options can be given in any order.
 | `-c SPEC`, `--columns SPEC` | columns to use, in the order given. Columns are numbered from 1 and can also be chosen by header name: `2`, `2,5`, `2-4`, `3-` (column 3 to the last), `height,weight` |
 | `--strict` | treat missing or NaN values as an error instead of skipping them |
 
+**Weights and relations between columns** (see [below](#relations-between-columns))
+
+| Option | Meaning |
+|---|---|
+| `-x COL`, `--ref COL` | reference column for `corr`, `cov` and the fit statistics. The reference column's own row is not printed. |
+| `-w COL`, `--weights COL` | frequency weights: each row counts w times |
+| `-e COL`, `--errors COL` | measurement errors σ, used as inverse-variance weights 1/σ². The same σ column applies to every data column. |
+| `--matrix corr\|cov\|rcorr` | print the matrix of that statistic between all data columns |
+
+`-x`, `-w` and `-e` columns are chosen the same way as with `-c`, and are
+never treated as data columns themselves.
+
 **Output options**
 
 | Option | Meaning |
@@ -126,18 +138,36 @@ For the parameterized statistics (`qN`, `momN`, `devN`, `ndevN`, `absmN`),
 replace `N` with a number. For example, `q25` is the 25th percentile, `q2.5`
 the 2.5th percentile, and `mom3` the third raw moment. `N` may be fractional.
 
+**Counts and location**
+
 | Name | Definition |
 |---|---|
-| `n` | number of non-missing values |
+| `n` | number of non-missing values (the total weight Σw with `-w`) |
+| `nrows` | number of rows with a value, even when weighted |
+| `nnan` | number of missing values |
 | `min`, `max` | minimum, maximum |
 | `absmin` | min(\|x\|) |
 | `range` | max − min |
 | `sum` | Σx |
 | `mean` | x̄ = Σx / n |
 | `median` | 50th percentile |
+| `mode` | most frequent value (the smallest, if tied) |
+| `gmean` | geometric mean, exp(mean(ln x)). `nan` unless all values are > 0. |
+| `hmean` | harmonic mean, n / Σ(1/x). `nan` unless all values are > 0. |
+| `trimmeanN` | mean after dropping N% of the values from *each* end, 0 ≤ N < 50 (as in scipy's `trim_mean`) |
+
+**Spread and shape**
+
+| Name | Definition |
+|---|---|
 | `stdev` | sample standard deviation s = √(Σ(x−x̄)² / (n−1)) |
 | `svar` | sample variance s² |
-| `stderr` | standard error of the mean, s / √n |
+| `pstdev`, `pvar` | population standard deviation and variance (dividing by n) |
+| `stderr` | **standard error of the mean** (the standard deviation of the mean of n measurements), s / √n. With `-e` it is 1/√Σ(1/σ²). |
+| `cv` | coefficient of variation, s / x̄ |
+| `mad` | median absolute deviation from the median, median(\|x − median\|) |
+| `smad` | 1.4826 × `mad`: a robust estimate of σ for normally distributed data |
+| `iqr` | interquartile range, `puq` − `plq` |
 | `skew` | bias-corrected skewness G1 (as in pandas and Excel) |
 | `kurt` | bias-corrected **excess** kurtosis G2 (0 for a normal distribution) |
 | `rms` | √(Σx² / n) |
@@ -148,11 +178,76 @@ the 2.5th percentile, and `mom3` the third raw moment. `N` may be fractional.
 | `devN` | central moment, Σ(x−x̄)^N / n |
 | `ndevN` | standardized moment, Σ((x−x̄)/s)^N / n (with the sample s) |
 | `absmN` | absolute central moment, Σ\|x−x̄\|^N / n |
+| `chi2`, `rchi2` | Σ((x−x̄)/σ)² about the weighted mean, and chi2 / (n−1). These require `-e`. |
 
 Percentiles interpolate linearly between order statistics, which is the
 numpy and pandas default. Statistics that are undefined for the data print
 `nan`, for example `stdev` of a single value or `kurt` with fewer than 4
 values.
+
+## Relations between columns
+
+Use `-x COL` to name a reference column. Each other column y is then compared
+with it: correlated, and fitted by least squares with a straight line
+y = a + b·x. The output keeps one row per column, and these statistics can be
+mixed with ordinary ones.
+
+```console
+$ cat obs.txt
+t flux err temp
+1 10.2 0.5 20.1
+2 12.1 0.4 20.9
+3 13.8 0.6 22.2
+4 16.3 0.5 22.8
+5 17.9 0.7 24.1
+$ stats -f obs.txt -x t -c flux,temp corr slope slope_err r2
+column       corr      slope  slope_err         r2
+flux        0.998       1.96    0.07211      0.996
+temp       0.9946       0.99    0.05972     0.9892
+
+$ stats -f obs.txt -x t -e err -c flux slope slope_err intercept rchi2fit
+column      slope  slope_err  intercept   rchi2fit
+flux        1.974     0.1756      8.166     0.1701
+
+$ stats -f obs.txt --matrix corr -c flux,temp,err
+column       flux       temp        err
+flux            1     0.9869     0.6623
+temp       0.9869          1     0.7607
+err        0.6623     0.7607          1
+```
+
+| Name | Definition |
+|---|---|
+| `corr` | Pearson correlation coefficient |
+| `rcorr` | Spearman rank correlation (unweighted only) |
+| `cov` | sample covariance, dividing by n−1 |
+| `slope`, `intercept` | b and a of the least-squares fit y = a + b·x |
+| `slope_err`, `intercept_err` | their standard errors. Without `-e` these are scaled by the residual scatter, as in scipy's `linregress`. With `-e` they come from the known σ alone. |
+| `r2` | coefficient of determination R² of the fit |
+| `rmsres` | RMS of the residuals |
+| `chi2fit`, `rchi2fit` | Σ((y − a − b·x)/σ)², and that value / (n−2). These require `-e`. |
+
+Rows where either the column or the reference is missing are skipped for that
+pair only.
+
+## Weights
+
+- **`-w COL` (frequency weights).** Every statistic is computed as if each row
+  appeared w times. For integer weights the results equal those for the
+  expanded data, and `n` is Σw. Rows with zero weight are ignored, and
+  negative weights are an error. `trimmeanN` and `rcorr` don't accept
+  weights.
+- **`-e COL` (measurement errors σ).** Rows are weighted by 1/σ².
+  - `mean` is the inverse-variance weighted mean and `stderr` is 1/√Σ(1/σ²).
+  - `chi2` and `rchi2` measure scatter about that mean.
+  - The fit statistics become proper weighted least squares.
+  - Statistics with no standard inverse-variance definition, such as
+    `median` and `stdev`, are refused rather than silently computed
+    unweighted.
+  - Weight-independent statistics (`n`, `min`, `max`, `range` and so on)
+    still work.
+
+`stats --list-stats` marks each statistic with the weight modes it accepts.
 
 ## findgen
 

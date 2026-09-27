@@ -21,6 +21,22 @@
 - Rows are labeled automatically when the input has names or `-c` is used.
   Use `-L` or `--no-labels` to override.
 
+**Statistics.**
+- New per-column statistics: `nrows`, `nnan`, `mode`, `gmean`, `hmean`,
+  `trimmeanN`, `pstdev`, `pvar`, `cv`, `mad`, `smad` and `iqr`.
+- `-x COL` names a reference column. Against it you can compute `corr`,
+  `rcorr`, `cov`, straight-line fit statistics (`slope`, `intercept`,
+  `slope_err`, `intercept_err`, `r2`, `rmsres`), and `chi2fit` and
+  `rchi2fit` with `-e`.
+- `--matrix corr|cov|rcorr` prints the full matrix between all data columns.
+- `-w COL` gives frequency weights. Every weighted statistic matches the
+  result of replicating each row w times.
+- `-e COL` gives measurement errors, with inverse-variance `mean`, `stderr`,
+  `chi2`, `rchi2` and weighted fits. Other statistics are rejected with an
+  explanation.
+- `--list-stats` groups statistics into per-column and cross-column sections,
+  and marks which ones accept weights.
+
 **Changed.**
 - Table columns now widen to fit long values instead of losing alignment.
 - Statistic names and options can be given in any order.
