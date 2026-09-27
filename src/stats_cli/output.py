@@ -29,6 +29,7 @@ _TO_ASCII = str.maketrans("▁▂▃▄▅▆▇█", ".:-=+*#@")
 
 def _exact(v: float) -> str:
     """Shortest round-trip representation, with integral values as integers."""
+    v = float(v)  # int.is_integer() only exists from Python 3.12
     if math.isfinite(v) and v.is_integer() and abs(v) < 2**53:
         return str(int(v))
     return repr(v)
@@ -108,6 +109,7 @@ def _json(stat_labels, row_labels, label_titles, values, ascii=False) -> str:
     def clean(v):
         if isinstance(v, str):
             return v.translate(_TO_ASCII) if ascii else v
+        v = float(v)
         if not math.isfinite(v):
             return None
         return int(v) if v.is_integer() and abs(v) < 2**53 else v
