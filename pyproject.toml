@@ -30,6 +30,11 @@ findgen = "stats_cli.findgen:main"
 
 [project.urls]
 Repository = "https://github.com/donalgrant/pstats"
+Changelog = "https://github.com/donalgrant/pstats/blob/main/CHANGELOG.md"
+Issues = "https://github.com/donalgrant/pstats/issues"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".github", ".gitignore"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stats_cli"]
