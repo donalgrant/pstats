@@ -361,6 +361,13 @@ findgen N [-o OFFSET] [-s STEP] [-r]
 Prints `OFFSET, OFFSET+STEP, …` (N values), one per line. `-r` reverses the
 order. The name comes from IDL's `FINDGEN`.
 
+`findgen` is essentially a `seq` that takes a **count** instead of endpoints:
+`findgen N` is `seq 0 $((N-1))`, without the off-by-one arithmetic. It also
+behaves the same on every platform when the count is zero. `findgen 0`
+prints nothing, while `seq 0 -1` prints nothing with GNU `seq` (Linux) but
+counts down (`0`, `-1`) with BSD `seq` (macOS). For fractional steps,
+zero-padding or custom formats, use `seq`.
+
 ## Development
 
 ```console
