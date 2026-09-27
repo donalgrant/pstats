@@ -1,0 +1,2 @@
+         n        min     absmin        max       mean        sum     median      range      stdev     stderr       skew       kurt        rms       svar        plq        puq        q10       q2.5        q50       mom1       mom3       dev2       dev3      ndev3      ndev4 
+       200     0.1782     0.1782      17.12      3.714      742.8      3.239      16.94      2.809     0.1986      1.686      4.107      4.653      7.891      1.837      4.826      0.793     0.2612      3.239      3.714      175.5      7.852      36.82      1.661      6.906 
