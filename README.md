@@ -1,10 +1,10 @@
 # stats
 
-Column statistics for whitespace-delimited numeric data, from the command line.
+Column statistics for numeric data, from the command line.
 
-`stats` reads numbers from standard input and prints the statistics you name,
-one output row per input column. It is a Python/numpy port of an older C++
-tool, designed to sit in Unix pipelines.
+`stats` reads numbers from standard input or files and prints the statistics
+you name, one output row per input column. It is a Python/numpy port of an
+older C++ tool, designed to sit in Unix pipelines.
 
 ```console
 $ seq 1 100 | stats n mean stdev q10 q90
@@ -14,6 +14,24 @@ $ seq 1 100 | stats n mean stdev q10 q90
 $ paste <(seq 1 10) <(seq 10 10 100) | stats -nh mean median
        5.5        5.5
         55         55
+
+$ cat people.csv
+height,weight,age
+170,65,30
+182,80,
+165,,41
+176,71,52
+$ stats --csv -f people.csv n mean stdev
+column          n       mean      stdev
+height          4      173.2      7.365
+weight          3         72       7.55
+age             3         41         11
+
+$ stats --csv -f people.csv -c age -T n mean median
+stat          age
+n               3
+mean           41
+median         41
 ```
 
 The package also installs `findgen`, a small index generator (`findgen 5`
@@ -35,32 +53,69 @@ To install from a local checkout for development, use
 ## Usage
 
 ```
-stats [-nh] [-v | -q] STAT [STAT ...] < data
+stats [options] STAT [STAT ...]
 ```
+
+Statistic names and options can be given in any order.
+
+**General options**
 
 | Option | Meaning |
 |---|---|
-| `-nh`, `--no-header` | omit the header line |
 | `-l`, `--list-stats` | list the available statistics and exit |
 | `-v`, `--verbose` | report parsing details on stderr |
 | `-q`, `--quiet` | suppress warnings |
 | `-V`, `--version` | print the version |
 
-**Input.** Fields are separated by any whitespace.
+**Input options**
+
+| Option | Meaning |
+|---|---|
+| `-f FILE`, `--file FILE` | read `FILE` instead of stdin. Repeat it to concatenate the rows of several files; `-` means stdin. |
+| `-d CHAR`, `--delimiter CHAR` | field delimiter (the default is any whitespace) |
+| `--csv`, `--tsv` | shorthand for `-d ,` and a tab delimiter |
+| `--header` | always treat the first line as column names |
+| `--no-header-row` | never treat the first line as column names |
+| `-c SPEC`, `--columns SPEC` | columns to use, in the order given. Columns are numbered from 1 and can also be chosen by header name: `2`, `2,5`, `2-4`, `3-` (column 3 to the last), `height,weight` |
+| `--strict` | treat missing or NaN values as an error instead of skipping them |
+
+**Output options**
+
+| Option | Meaning |
+|---|---|
+| `-nh`, `--no-header` | omit the header line |
+| `-F FMT`, `--format FMT` | `table` (the default), `csv`, `tsv` or `json` |
+| `-T`, `--transpose` | one row per statistic instead of one per column |
+| `-L`, `--labels` / `--no-labels` | force the row-label column on or off |
+| `-p N`, `--precision N` | significant digits (the default is 4 in tables and full precision in csv/tsv) |
+| `--fmt PRINTF` | printf-style number format, such as `%.3f` |
+
+**Input.**
 - Blank lines and anything after `#` are ignored.
-- Tokens like `nan` or `NA` count as missing, and so do fields missing from
-  short rows. Missing values are left out of every statistic, and `n` counts
-  only the values present.
+- A first line with **no** numeric fields is taken as the column names. Use
+  `--header` or `--no-header-row` to override this.
+- Tokens like `nan` or `NA` count as missing values. So do empty delimited
+  fields and fields missing from short rows.
+- Missing values are left out of every statistic, and `n` counts only the
+  values present. Use `--strict` to make missing values an error instead.
 - Any other non-numeric token is an error.
 
 **Output.**
-- A right-aligned header line, unless `-nh` is given.
-- Then one line per input column. Each value is printed with format
-  `%10.4g`, and statistics appear in the order you requested them.
+- A header line comes first, unless `-nh` is given. Then there is one line
+  per input column.
+- By default each value is printed with format `%10.4g`, and statistics
+  appear in the order you requested them.
+- Rows get a leading label (the column name or number) when the input had a
+  header row or `-c` was used. Otherwise the output is unlabeled, as in the
+  original tool.
+- `csv` and `tsv` output uses full precision.
+- `json` output is a list of objects such as
+  `{"column": "height", "mean": 173.25}`. Undefined values become `null`.
 
 **Exit status.**
 - `0` on success.
-- `1` for bad input data.
+- `1` for input data problems, such as an unreadable file or a non-numeric
+  value.
 - `2` for a usage error, such as an unknown statistic.
 
 Errors and warnings go to stderr.

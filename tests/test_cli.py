@@ -67,3 +67,67 @@ def test_help_and_version(run):
         with pytest.raises(SystemExit) as e:
             run([flag])
         assert e.value.code == 0
+
+
+def test_file_arguments(run, tmp_path):
+    a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+    a.write_text("1\n2\n")
+    b.write_text("3\n")
+    code, out, _ = run(["-nh", "n", "sum", "-f", str(a), "-f", str(b)])
+    assert code == 0 and out.split() == ["3", "6"]
+
+
+def test_stdin_dash_with_file(run, tmp_path):
+    a = tmp_path / "a.txt"
+    a.write_text("1\n")
+    _, out, _ = run(["-nh", "n", "-f", "-", "-f", str(a)], "5\n6\n")
+    assert out.split() == ["3"]
+
+
+def test_missing_file(run):
+    code, _, err = run(["mean", "-f", "does-not-exist.txt"])
+    assert code == EXIT_DATA and "does-not-exist.txt" in err
+
+
+def test_csv_header_gives_labels(run):
+    code, out, _ = run(["--csv", "mean"], "x,y\n1,2\n3,4\n")
+    assert out.splitlines()[1].split() == ["x", "2"]
+
+
+def test_columns_by_name_and_labels_off(run):
+    _, out, _ = run(["--csv", "-c", "y", "--no-labels", "-nh", "mean"], "x,y\n1,2\n3,4\n")
+    assert out.split() == ["3"]
+
+
+def test_force_labels(run):
+    _, out, _ = run(["-L", "-nh", "n"], "1 2\n")
+    assert [line.split() for line in out.splitlines()] == [["1", "1"], ["2", "1"]]
+
+
+def test_options_after_stats(run):
+    _, out, _ = run(["mean", "-nh", "n"], "1\n2\n")
+    assert out.split() == ["1.5", "2"]
+
+
+def test_json_output(run):
+    import json
+
+    _, out, _ = run(["-F", "json", "n"], "1\n2\n")
+    assert json.loads(out) == [{"column": "1", "n": 2}]
+
+
+def test_strict_flag(run):
+    code, _, err = run(["--strict", "n"], "1 2\n3\n")
+    assert code == EXIT_DATA and "strict" in err
+
+
+@pytest.mark.parametrize("args", [["--fmt", "%d%d", "n"], ["-p", "0", "n"], ["-d", "ab", "n"]])
+def test_bad_output_options(run, args):
+    code, _, err = run(args, "1\n")
+    assert code == EXIT_USAGE and "error" in err
+
+
+def test_conflicting_delimiters(run):
+    with pytest.raises(SystemExit) as e:
+        run(["--csv", "--tsv", "n"], "1\n")
+    assert e.value.code == EXIT_USAGE
