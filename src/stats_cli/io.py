@@ -36,6 +36,8 @@ class Table:
     labels: list[str]
     named: bool = False
     roles: dict[str, np.ndarray] = field(default_factory=dict)
+    keys: np.ndarray | None = None  # text group keys per row (-g), if any
+    key_name: str = "group"  # header name of the group column, if it has one
 
 
 @dataclass
@@ -45,6 +47,7 @@ class ReadOptions:
     columns: str | None = None  # a -c spec, e.g. "1,3-5" or "height,weight"
     strict: bool = False
     roles: dict[str, str] = field(default_factory=dict)  # e.g. {"ref": "1", "weights": "w"}
+    group: str | None = None  # column holding (text) group keys
 
 
 def _split(line: str, delimiter: str | None) -> list[str]:
@@ -127,16 +130,13 @@ def read_table(text: str, opts: ReadOptions | None = None, warn: Warn = _no_warn
     cols = parse_columns(opts.columns, names, width) if opts.columns else None
     role_idx: dict[str, int] = {}
     for role, spec in opts.roles.items():
-        idx = parse_columns(spec, names, width)
-        if len(idx) != 1:
-            raise DataError(f"{spec!r} must name a single column")
-        role_idx[role] = idx[0]
-    if role_idx:
-        cols = [
-            i for i in (cols if cols is not None else range(width)) if i not in role_idx.values()
-        ]
+        role_idx[role] = _single_column(spec, names, width)
+    group_idx = _single_column(opts.group, names, width) if opts.group else None
+    special = [*role_idx.values(), *([group_idx] if group_idx is not None else [])]
+    if special:
+        cols = [i for i in (cols if cols is not None else range(width)) if i not in special]
         if not cols:
-            raise DataError("no data columns left besides the -x/-w/-e columns")
+            raise DataError("no data columns left besides the -x/-w/-e/-g columns")
     use = cols + list(role_idx.values()) if cols is not None else None
     data = _parse_body(body, first_lineno, opts, use, warn)
     if data.shape[0] == 0:
@@ -147,12 +147,43 @@ def read_table(text: str, opts: ReadOptions | None = None, warn: Warn = _no_warn
     roles = {role: data[:, len(cols) + k] for k, role in enumerate(role_idx)}
     if cols is not None:
         data = data[:, : len(cols)]
+    keys = None
+    if group_idx is not None:
+        keys = _read_keys(body, opts.delimiter, group_idx)
+        if keys.size != data.shape[0]:  # cannot happen if both parsers skip the same lines
+            raise DataError("internal error: group keys and data rows are misaligned")
     idx = cols if cols is not None else range(data.shape[1])
     if names:
         labels = [names[i] if i < len(names) else str(i + 1) for i in idx]
     else:
         labels = [str(i + 1) for i in idx]
-    return Table(data, labels, named=bool(names), roles=roles)
+    key_name = names[group_idx] if names and group_idx is not None else "group"
+    return Table(data, labels, named=bool(names), roles=roles, keys=keys, key_name=key_name)
+
+
+def _single_column(spec: str, names: Sequence[str] | None, width: int) -> int:
+    idx = parse_columns(spec, names, width)
+    if len(idx) != 1:
+        raise DataError(f"{spec!r} must name a single column")
+    return idx[0]
+
+
+def _read_keys(body: str, delimiter: str | None, col: int) -> np.ndarray:
+    """The text values of one column, one per data row ('' where a row is too short)."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            keys = np.loadtxt(
+                io.StringIO(body), dtype=str, comments="#", delimiter=delimiter, usecols=[col]
+            )
+        return np.char.strip(np.atleast_1d(keys))
+    except ValueError:  # ragged rows
+        keys = []
+        for line in body.splitlines():
+            fields = _split(line, delimiter)
+            if fields:
+                keys.append(fields[col] if col < len(fields) else "")
+        return np.array(keys, dtype=str)
 
 
 def _parse_body(
@@ -177,22 +208,26 @@ def _parse_body(
 def _parse_slow(
     body: str, first_lineno: int, opts: ReadOptions, cols: list[int] | None, warn: Warn
 ) -> np.ndarray:
+    def convert(tok: str, lineno: int) -> float:
+        try:
+            return float(tok)
+        except ValueError:
+            if tok.lower() not in _NAN_TOKENS:
+                raise DataError(f"line {lineno}: non-numeric value {tok!r}") from None
+            if opts.strict:
+                raise DataError(f"line {lineno}: missing value {tok!r} (--strict)") from None
+            return np.nan
+
     rows: list[list[float]] = []
     for lineno, line in enumerate(body.splitlines(), first_lineno):
         fields = _split(line, opts.delimiter)
         if not fields:
             continue
-        row = []
-        for tok in fields:
-            try:
-                row.append(float(tok))
-            except ValueError:
-                if tok.lower() not in _NAN_TOKENS:
-                    raise DataError(f"line {lineno}: non-numeric value {tok!r}") from None
-                if opts.strict:
-                    raise DataError(f"line {lineno}: missing value {tok!r} (--strict)") from None
-                row.append(np.nan)
-        rows.append(row)
+        if cols is not None:
+            # only the selected columns are converted, so other columns may hold text
+            fields = [fields[c] for c in range(min(len(fields), max(cols) + 1))]
+            fields = [f if i in cols else "0" for i, f in enumerate(fields)]
+        rows.append([convert(tok, lineno) for tok in fields])
     width = max(map(len, rows), default=0)
     short = sum(len(r) < width for r in rows)
     if short:
@@ -245,4 +280,12 @@ def concat(tables: Sequence[Table], warn: Warn = _no_warn) -> Table:
     base = (named[0] if named else max(tables, key=lambda t: len(t.labels))).labels
     labels = base + [str(i + 1) for i in range(len(base), width)]
     roles = {role: np.concatenate([t.roles[role] for t in tables]) for role in tables[0].roles}
-    return Table(np.vstack(parts), labels[:width], named=bool(named), roles=roles)
+    keys = None if tables[0].keys is None else np.concatenate([t.keys for t in tables])
+    return Table(
+        np.vstack(parts),
+        labels[:width],
+        named=bool(named),
+        roles=roles,
+        keys=keys,
+        key_name=tables[0].key_name,
+    )

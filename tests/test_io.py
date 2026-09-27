@@ -91,3 +91,26 @@ def test_concat_pads_and_keeps_names():
     assert t.labels == ["x", "y"] and t.named
     np.testing.assert_array_equal(t.data, [[1, 2], [3, np.nan]])
     assert warnings
+
+
+def test_group_keys_are_text_and_excluded_from_data():
+    t = read_table("band flux\nB 1\nV 2\nB 3\n", ReadOptions(group="band"))
+    assert t.keys.tolist() == ["B", "V", "B"] and t.key_name == "band"
+    assert t.labels == ["flux"] and t.data.shape == (3, 1)
+
+
+def test_group_keys_ragged_rows():
+    t = read_table("1 A\n2\n3 B\n", ReadOptions(group="2"))
+    assert t.keys.tolist() == ["A", "", "B"]
+    assert t.key_name == "group"
+
+
+def test_text_columns_ignored_when_not_selected():
+    t = read_table("name x\nfoo 1\nbar 2\n", ReadOptions(columns="x"))
+    np.testing.assert_array_equal(t.data, [[1], [2]])
+
+
+def test_concat_keeps_keys():
+    opts = ReadOptions(group="1")
+    a, b = read_table("A 1\n", opts), read_table("B 2\n", opts)
+    assert concat([a, b]).keys.tolist() == ["A", "B"]

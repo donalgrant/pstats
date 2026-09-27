@@ -190,6 +190,20 @@ def _fit_stat(key: str):
     return lambda s: _fit(s)[key]
 
 
+SPARK_LEVELS = "▁▂▃▄▅▆▇█"  # output.OutputOptions.ascii maps these to plain ASCII
+
+
+def _spark(s: Sample, bins: float = 10) -> str:
+    """A one-line histogram; empty bins are blank."""
+    counts, _ = np.histogram(s.x, bins=int(bins), weights=s.w)
+    top = counts.max()
+    if top <= 0:
+        return ""
+    levels = SPARK_LEVELS
+    idx = np.ceil(counts / top * len(levels)).astype(int) - 1
+    return "".join(levels[i] if c > 0 else " " for i, c in zip(idx, counts, strict=True))
+
+
 def _percent(p: float) -> bool:
     return 0 <= p <= 100
 
@@ -282,6 +296,15 @@ for _stat in [
         param="power",
     ),
     Stat("absm", "N-th absolute central moment, mean(|x-mean|**N)", _absm, param="power"),
+    Stat("spark", "sparkline: a 10-bin histogram drawn as text", _spark, text=True),
+    Stat(
+        "spark",
+        "sparkline with N bins, e.g. spark20",
+        _spark,
+        param="number of bins 1-200",
+        valid=lambda p: p == int(p) and 1 <= p <= 200,
+        text=True,
+    ),
     # between each column (y) and the reference column (x), selected with -x
     Stat("corr", "Pearson correlation with the reference column", _corr, cross=True),
     Stat(

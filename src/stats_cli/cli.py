@@ -3,17 +3,35 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from collections.abc import Sequence
 
-from . import __version__
+import numpy as np
+
+from . import __version__, analysis
 from .io import DataError, ReadOptions, read_sources
-from .output import FORMATS, OutputOptions, render
+from .output import FORMATS, OutputOptions, render, render_hist
 from .registry import ERR, FREQ, NONE, Registry, Sample, UnknownStatError
 from .stats import BUILTIN
 
 EXIT_OK, EXIT_DATA, EXIT_USAGE = 0, 1, 2
 MATRIX_STATS = ("corr", "cov", "rcorr")
+DEFAULT_STATS = ["n", "mean", "stdev", "min", "median", "max"]
+DESCRIBE_STATS = [
+    "n",
+    "nnan",
+    "mean",
+    "stdev",
+    "stderr",
+    "min",
+    "plq",
+    "median",
+    "puq",
+    "max",
+    "skew",
+    "kurt",
+]
 
 DESCRIPTION = """\
 Compute statistics of numeric columns read from stdin or files.
@@ -21,7 +39,8 @@ Compute statistics of numeric columns read from stdin or files.
 Each named statistic is computed for every input column; the output has one
 row per input column and one field per statistic, in the order requested.
 Parameterized statistics take a number in place of N: q25 is the 25th
-percentile, mom3 the third raw moment. Use --list-stats to see them all."""
+percentile, mom3 the third raw moment. Use --list-stats to see them all.
+With no statistics named, the default set is: n mean stdev min median max."""
 
 EPILOG = """\
 examples:
@@ -36,6 +55,10 @@ examples:
   stats -x 1 corr slope slope_err r2 < xy.txt   # compare each column with column 1
   stats -e 2 mean stderr rchi2 < values.txt     # inverse-variance weighted mean
   stats --matrix corr < data.txt
+  stats -g band -c flux n mean stderr < obs.txt # statistics per value of 'band'
+  stats --hist --bins 20 -c 2 < data.txt        # text histogram
+  stats --ci 95 --seed 1 mean median < data.txt # bootstrap confidence intervals
+  stats --describe < data.txt                   # a broad summary
 
 input:
   Fields are separated by whitespace unless -d/--csv/--tsv is given. Blank
@@ -129,10 +152,53 @@ def build_parser() -> argparse.ArgumentParser:
         "inverse-variance weights 1/sigma**2",
     )
     rel.add_argument(
+        "-g",
+        "--group",
+        metavar="COL",
+        help="compute statistics separately for each distinct value (text or number) in COL",
+    )
+    rel.add_argument(
         "--matrix",
         choices=MATRIX_STATS,
         help="print the matrix of corr, cov or rcorr between all data columns",
     )
+
+    p.add_argument(
+        "--describe",
+        action="store_true",
+        help=f"a broad summary: {' '.join(DESCRIBE_STATS)} (plus any statistics named)",
+    )
+
+    hist = p.add_argument_group("histograms")
+    hist.add_argument(
+        "--hist", action="store_true", help="print a histogram of each column instead of statistics"
+    )
+    hist.add_argument(
+        "--bins",
+        default="auto",
+        metavar="N|RULE",
+        help=f"number of bins, or a rule: {', '.join(analysis.BIN_RULES)} (default: auto)",
+    )
+    hist.add_argument("--range", metavar="LO:HI", help="histogram range (default: data range)")
+    hist.add_argument(
+        "--ascii", action="store_true", help="draw bars and sparklines with ASCII characters"
+    )
+
+    boot = p.add_argument_group("bootstrap confidence intervals")
+    boot.add_argument(
+        "--ci",
+        type=float,
+        metavar="LEVEL",
+        help="add STAT_lo and STAT_hi columns: a LEVEL%% percentile-bootstrap interval",
+    )
+    boot.add_argument(
+        "--bootstrap",
+        type=int,
+        default=1000,
+        metavar="N",
+        help="number of bootstrap resamples (default: 1000)",
+    )
+    boot.add_argument("--seed", type=int, help="random seed, for reproducible intervals")
 
     out = p.add_argument_group("output options")
     out.add_argument("-nh", "--no-header", action="store_true", help="omit the header line")
@@ -217,17 +283,30 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
         print(list_stats(registry))
         return EXIT_OK
     mode = FREQ if args.weights else ERR if args.errors else NONE
-    if args.matrix:
-        if args.stats:
-            return usage_error("--matrix cannot be combined with statistic names")
+
+    # -- which statistics ------------------------------------------------------
+    preset: list[str] = []
+    if args.hist or args.matrix:
+        what = "--hist" if args.hist else "--matrix"
+        if args.stats or args.describe:
+            return usage_error(f"{what} cannot be combined with statistic names")
         if args.ref:
-            return usage_error("--matrix cannot be combined with -x")
-        names = [args.matrix]
-    elif not args.stats:
-        parser.print_usage(sys.stderr)
-        return usage_error("no statistics requested (see --list-stats)")
+            return usage_error(f"{what} cannot be combined with -x")
+        if args.ci is not None:
+            return usage_error(f"{what} cannot be combined with --ci")
+        if args.matrix and args.group:
+            return usage_error("--matrix cannot be combined with -g")
+        if args.hist and mode == ERR:
+            return usage_error("--hist does not support -e; use -w for weighted counts")
+        names = [args.matrix] if args.matrix else []
     else:
-        names = args.stats
+        if args.describe:
+            preset = DESCRIBE_STATS
+        elif not args.stats:
+            preset = DEFAULT_STATS
+        # presets quietly skip statistics that the weight mode does not allow
+        preset = [n for n in preset if mode in registry.resolve(n).stat.modes]
+        names = preset + [n for n in args.stats if n not in preset]
     try:
         requests = [registry.resolve(name) for name in names]
     except UnknownStatError as e:
@@ -237,6 +316,8 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
             return usage_error(_mode_error(r.label, r.stat, mode))
         if r.stat.cross and not (args.ref or args.matrix):
             return usage_error(f"{r.label} needs a reference column (-x COL)")
+
+    # -- option sanity ---------------------------------------------------------
     if args.fmt:
         try:
             args.fmt % 1.0
@@ -246,7 +327,17 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
         return usage_error("--precision must be at least 1")
     if args.delimiter is not None and len(args.delimiter) != 1:
         return usage_error("--delimiter must be a single character")
+    if args.ci is not None and not 0 < args.ci < 100:
+        return usage_error("--ci must be between 0 and 100, e.g. 95")
+    if args.bootstrap < 1:
+        return usage_error("--bootstrap must be at least 1")
+    try:
+        bins = analysis.parse_bins(args.bins)
+        value_range = analysis.parse_range(args.range) if args.range else None
+    except ValueError as e:
+        return usage_error(str(e))
 
+    # -- read ------------------------------------------------------------------
     read_opts = ReadOptions(
         delimiter=args.delimiter,
         header=args.header_row or "auto",
@@ -261,6 +352,7 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
             )
             if spec
         },
+        group=args.group,
     )
     try:
         table = read_sources(args.file, read_opts, warn)
@@ -271,35 +363,89 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
     info(f"read {table.data.shape[0]} rows x {table.data.shape[1]} columns")
     if table.named:
         info(f"column names: {', '.join(table.labels)}")
+    grouped = analysis.groups(table.keys)
+    if table.keys is not None:
+        if (missing := int((table.keys == "").sum())) > 0:
+            warn(f"{missing} row(s) with no {table.key_name} value ignored")
+        info(f"{len(grouped)} groups")
 
     ref = table.roles.get("ref")
     columns = list(table.data.T)
-    if args.matrix:
-        (req,) = requests
-        values = [[req(Sample(y, weights, mode, ref=x)) for x in columns] for y in columns]
-        stat_labels = table.labels
-    else:
-        values = []
-        for label, col in zip(table.labels, columns, strict=True):
-            sample = Sample(col, weights, mode, ref=ref)
-            if sample.nrows < col.size:
-                info(
-                    f"column {label}: skipped {col.size - sample.nrows} row(s) with missing values"
-                )
-            values.append([r(sample) for r in requests])
-        stat_labels = [r.label for r in requests]
+    titles = (table.key_name, "column") if table.keys is not None else ("column",)
 
-    auto_labels = table.named or bool(args.columns or table.roles or args.matrix)
-    labels = args.labels if args.labels is not None else auto_labels
+    def row_label(key, label):
+        return (key, label) if key is not None else (label,)
+
+    def subset(a, idx):
+        return a[idx] if a is not None else None
+
+    auto_labels = table.named or bool(
+        args.columns or table.roles or args.matrix or table.keys is not None
+    )
     out_opts = OutputOptions(
         format=args.format,
         header=not args.no_header,
-        labels=labels,
+        labels=args.labels if args.labels is not None else auto_labels,
         transpose=args.transpose,
         precision=args.precision,
         printf=args.fmt,
+        ascii=args.ascii,
     )
-    text = render(stat_labels, table.labels, values, out_opts)
+
+    # -- compute and render ----------------------------------------------------
+    if args.hist:
+        blocks = []
+        for label, col in zip(table.labels, columns, strict=True):
+            if np.isnan(col).all():
+                warn(f"column {label}: no values to histogram")
+                continue
+            edges = analysis.bin_edges(col, bins, value_range)  # shared by all groups
+            for key, idx in grouped:
+                counts = analysis.histogram(col[idx], edges, subset(weights, idx))
+                blocks.append((row_label(key, label), edges.tolist(), counts.tolist()))
+        width = shutil.get_terminal_size((80, 24)).columns
+        text = render_hist(
+            blocks, out_opts, titles, bar_width=max(10, min(50, width - 40)), ascii=args.ascii
+        )
+    elif args.matrix:
+        (req,) = requests
+        values = [[req(Sample(y, weights, mode, ref=x)) for x in columns] for y in columns]
+        text = render(table.labels, table.labels, values, out_opts)
+    else:
+        stat_labels = []
+        for r in requests:
+            stat_labels.append(r.label)
+            if args.ci is not None and not r.stat.text:
+                stat_labels += [f"{r.label}_lo", f"{r.label}_hi"]
+        numeric = [r for r in requests if not r.stat.text]
+        seed = args.seed if args.seed is not None else np.random.SeedSequence().entropy
+        if args.ci is not None and table.data.shape[0] * args.bootstrap > 5e7:
+            warn(f"bootstrap: {args.bootstrap} resamples of {table.data.shape[0]} rows may be slow")
+
+        labels, values = [], []
+        for g, (key, idx) in enumerate(grouped):
+            w, x = subset(weights, idx), subset(ref, idx)
+            for label, col in zip(table.labels, columns, strict=True):
+                y = col[idx]
+                sample = Sample(y, w, mode, ref=x)
+                if sample.nrows < y.size:
+                    info(f"{label}: skipped {y.size - sample.nrows} row(s) with missing values")
+                row = [r(sample) for r in requests]
+                if args.ci is not None:
+                    # same seed per group: every column sees the same resampled rows
+                    cis = iter(
+                        analysis.bootstrap(
+                            numeric, y, w, mode, x, args.ci, args.bootstrap, [seed, g]
+                        )
+                    )
+                    row = [
+                        v
+                        for r, val in zip(requests, row, strict=True)
+                        for v in ([val] if r.stat.text else [val, *next(cis)])
+                    ]
+                labels.append(row_label(key, label))
+                values.append(row)
+        text = render(stat_labels, labels, values, out_opts, titles)
     if text:
         print(text)
     return EXIT_OK

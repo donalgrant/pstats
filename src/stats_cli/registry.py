@@ -116,6 +116,8 @@ class Stat:
     cross: bool = False
     empty_ok: bool = False
     """Compute even for a column with no values (otherwise the result is NaN)."""
+    text: bool = False
+    """The result is a string (e.g. a sparkline), not a number."""
 
     @property
     def display_name(self) -> str:
@@ -134,13 +136,13 @@ class Request:
     stat: Stat
     arg: float | None = None
 
-    def __call__(self, sample: Sample) -> float:
+    def __call__(self, sample: Sample) -> float | str:
         if sample.nrows == 0 and not self.stat.empty_ok:
-            return np.nan
+            return "" if self.stat.text else np.nan
         with np.errstate(all="ignore"):
-            if self.stat.param:
-                return float(self.stat.func(sample, self.arg))
-            return float(self.stat.func(sample))
+            args = (sample, self.arg) if self.stat.param else (sample,)
+            result = self.stat.func(*args)
+        return result if self.stat.text else float(result)
 
 
 _PARAM_RE = re.compile(r"^([A-Za-z_]+?)(\d+(?:\.\d*)?)$")

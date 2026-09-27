@@ -167,7 +167,10 @@ def test_frequency_weights_equal_replication(label):
         return
     got = BUILTIN.resolve(label)(Sample(WX, WW, "freq"))
     want = calc(label, REPLICATED)
-    np.testing.assert_allclose(got, want, rtol=1e-10)
+    if isinstance(want, str):
+        assert got == want
+    else:
+        np.testing.assert_allclose(got, want, rtol=1e-10)
 
 
 @pytest.mark.parametrize("label", ["corr", "cov", "slope", "intercept", "slope_err", "r2"])
@@ -199,7 +202,7 @@ def test_zero_weight_rows_are_dropped():
 def test_every_stat_has_a_test():
     tested = {BUILTIN.resolve(k).stat.name for k in REFERENCE}
     tested |= {"corr", "cov", "rcorr", "slope", "intercept", "slope_err", "intercept_err"}
-    tested |= {"r2", "rmsres", "chi2fit", "rchi2fit", "chi2", "rchi2"}
+    tested |= {"r2", "rmsres", "chi2fit", "rchi2fit", "chi2", "rchi2", "spark"}
     assert tested == {s.name for s in BUILTIN}
 
 
@@ -235,3 +238,10 @@ def test_constant_data():
 def test_bad_names(bad):
     with pytest.raises(ValueError):
         BUILTIN.resolve(bad)
+
+
+def test_spark():
+    assert calc("spark", np.arange(100.0)) == "█" * 10
+    line = calc("spark4", np.array([0.0, 0, 0, 0, 3, 3]))
+    assert line == "█  ▄"  # empty bins are blank
+    assert calc("spark", np.array([np.nan])) == ""

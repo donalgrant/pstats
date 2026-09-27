@@ -37,6 +37,20 @@
 - `--list-stats` groups statistics into per-column and cross-column sections,
   and marks which ones accept weights.
 
+**Grouping, histograms and intervals.**
+- `-g COL` computes statistics per group. Keys may be text or numbers, and
+  groups are listed in sorted order.
+- `--hist` prints text histograms, with `--bins N|RULE`, `--range LO:HI` and
+  `--ascii`. Groups share bin edges, and `-w` gives weighted counts.
+- New `spark` and `sparkN` statistics draw inline sparklines.
+- `--ci LEVEL` adds percentile-bootstrap intervals as `STAT_lo` and
+  `STAT_hi` columns, with `--bootstrap N` and `--seed S`.
+- With no statistics named, `stats` now prints a default set
+  (`n mean stdev min median max`) instead of an error.
+- `--describe` prints a broad summary set.
+- Columns not selected with `-c` (or used by `-x`, `-w`, `-e`, `-g`) may
+  contain text.
+
 **Changed.**
 - Table columns now widen to fit long values instead of losing alignment.
 - Statistic names and options can be given in any order.

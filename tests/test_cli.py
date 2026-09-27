@@ -45,7 +45,7 @@ def test_empty_input_is_data_error(run):
     assert code == EXIT_DATA and "no input" in err
 
 
-@pytest.mark.parametrize("args", [[], ["bogus"], ["qN"], ["q200"]])
+@pytest.mark.parametrize("args", [["bogus"], ["qN"], ["q200"]])
 def test_usage_errors_go_to_stderr(run, args):
     code, out, err = run(args, "1\n")
     assert code == EXIT_USAGE and out == "" and "error" in err
@@ -209,3 +209,107 @@ def test_role_must_be_single_column(run):
 def test_list_stats_sections(run):
     _, out, _ = run(["-l"])
     assert "need -x" in out and "slope_err" in out and "trimmeanN" in out
+
+
+BANDS = "band flux err\nV 15 0.5\nB 13 0.5\nV 16 1\nB 12 0.5\nR 17 1\n"
+
+
+def test_group_by_text_key(run):
+    code, out, _ = run(["-g", "band", "n", "mean"], BANDS)
+    rows = [line.split() for line in out.splitlines()]
+    assert code == 0 and rows[0] == ["band", "column", "n", "mean"]
+    assert rows[1:] == [
+        ["B", "flux", "2", "12.5"],
+        ["B", "err", "2", "0.5"],
+        ["R", "flux", "1", "17"],
+        ["R", "err", "1", "1"],
+        ["V", "flux", "2", "15.5"],
+        ["V", "err", "2", "0.75"],
+    ]
+
+
+def test_group_with_errors(run):
+    _, out, _ = run(["-g", "band", "-c", "flux", "-e", "err", "-nh", "mean"], BANDS)
+    rows = [line.split() for line in out.splitlines()]
+    assert rows[0] == ["B", "flux", "12.5"]
+    assert rows[2][0] == "V" and float(rows[2][2]) == pytest.approx((15 * 4 + 16) / 5)
+
+
+def test_group_json(run):
+    import json
+
+    _, out, _ = run(["-g", "band", "-c", "flux", "-F", "json", "n"], BANDS)
+    assert json.loads(out)[0] == {"band": "B", "column": "flux", "n": 2}
+
+
+def test_default_stats(run):
+    code, out, _ = run([], "1\n2\n3\n")
+    assert code == 0 and out.split()[:6] == ["n", "mean", "stdev", "min", "median", "max"]
+
+
+def test_default_stats_filtered_for_errors(run):
+    _, out, _ = run(["-e", "2"], "1 1\n3 1\n")
+    assert out.splitlines()[0].split() == ["column", "n", "mean", "min", "max"]
+
+
+def test_describe_plus_extra(run):
+    _, out, _ = run(["--describe", "iqr", "mean"], "1\n2\n3\n4\n")
+    head = out.splitlines()[0].split()
+    assert head[0] == "n" and head[-1] == "iqr" and head.count("mean") == 1
+
+
+def test_hist(run):
+    code, out, _ = run(["--hist", "--bins", "2", "--ascii"], "1\n2\n3\n4\n4\n")
+    lines = out.splitlines()
+    assert code == 0 and lines[0].split() == ["lo", "hi", "count"]
+    assert lines[1].split() == ["1", "2.5", "2", "#" * 27]  # 2/3 of the 40-char maximum
+    assert lines[2].split() == ["2.5", "4", "3", "#" * 40]
+
+
+def test_spark_ascii(run):
+    _, out, _ = run(["--ascii", "-nh", "spark4"], "0\n0\n0\n0\n3\n3\n")
+    assert out.rstrip("\n").lstrip() == "@  ="
+
+
+def test_hist_range_and_csv(run):
+    _, out, _ = run(["--hist", "--bins", "2", "--range", "0:10", "-F", "csv"], "1\n6\n7\n")
+    assert out.splitlines() == ["column,lo,hi,count", "1,0,5,1", "1,5,10,2"]
+
+
+def test_hist_grouped_shares_edges(run):
+    _, out, _ = run(["--hist", "--bins", "2", "-g", "1", "-F", "csv", "-nh"], "A 0\nA 1\nB 4\n")
+    rows = [line.split(",") for line in out.splitlines()]
+    assert [r[2:4] for r in rows] == [["0", "2"], ["2", "4"]] * 2
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--hist", "mean"],
+        ["--hist", "-x", "1"],
+        ["--hist", "--ci", "95"],
+        ["--hist", "-e", "2"],
+        ["--hist", "--bins", "zero"],
+        ["--hist", "--range", "5:1"],
+        ["--matrix", "corr", "-g", "1"],
+        ["--ci", "100", "mean"],
+        ["--bootstrap", "0", "--ci", "90", "mean"],
+    ],
+)
+def test_phase4_usage_errors(run, args):
+    code, _, err = run(args, "1 2\n3 4\n")
+    assert code == EXIT_USAGE and "error" in err
+
+
+def test_ci_columns(run):
+    code, out, _ = run(
+        ["--ci", "90", "--seed", "3", "--bootstrap", "200", "mean", "spark"], "1\n2\n3\n4\n5\n6\n"
+    )
+    head, row = (line.split() for line in out.splitlines())
+    assert head == ["mean", "mean_lo", "mean_hi", "spark"]
+    assert float(row[1]) <= 3.5 <= float(row[2])
+
+
+def test_ci_reproducible(run):
+    args = ["--ci", "95", "--seed", "7", "--bootstrap", "100", "-nh", "median"]
+    assert run(args, "1\n5\n2\n8\n3\n")[1] == run(args, "1\n5\n2\n8\n3\n")[1]

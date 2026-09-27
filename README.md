@@ -53,10 +53,13 @@ To install from a local checkout for development, use
 ## Usage
 
 ```
-stats [options] STAT [STAT ...]
+stats [options] [STAT ...]
 ```
 
-Statistic names and options can be given in any order.
+Statistic names and options can be given in any order. If you name no
+statistics, the default set is `n mean stdev min median max`. `--describe`
+gives a broader summary: `n nnan mean stdev stderr min plq median puq max
+skew kurt`, followed by any statistics you name.
 
 **General options**
 
@@ -87,6 +90,19 @@ Statistic names and options can be given in any order.
 | `-w COL`, `--weights COL` | frequency weights: each row counts w times |
 | `-e COL`, `--errors COL` | measurement errors σ, used as inverse-variance weights 1/σ². The same σ column applies to every data column. |
 | `--matrix corr\|cov\|rcorr` | print the matrix of that statistic between all data columns |
+| `-g COL`, `--group COL` | compute the statistics separately for each distinct value in `COL`. Values may be text or numbers. |
+
+**Histograms and confidence intervals** (see [Histograms](#histograms) and [Bootstrap](#bootstrap-confidence-intervals))
+
+| Option | Meaning |
+|---|---|
+| `--hist` | print a histogram of each column instead of statistics |
+| `--bins N\|RULE` | number of bins, or a numpy rule: `auto` (the default), `fd`, `sturges`, `sqrt`, … |
+| `--range LO:HI` | histogram range (the default is the data range) |
+| `--ascii` | draw bars and sparklines with plain ASCII characters |
+| `--ci LEVEL` | add `STAT_lo` and `STAT_hi` columns: a LEVEL% bootstrap confidence interval |
+| `--bootstrap N` | number of bootstrap resamples (default 1000) |
+| `--seed S` | random seed, for reproducible intervals |
 
 `-x`, `-w` and `-e` columns are chosen the same way as with `-c`, and are
 never treated as data columns themselves.
@@ -180,6 +196,12 @@ the 2.5th percentile, and `mom3` the third raw moment. `N` may be fractional.
 | `absmN` | absolute central moment, Σ\|x−x̄\|^N / n |
 | `chi2`, `rchi2` | Σ((x−x̄)/σ)² about the weighted mean, and chi2 / (n−1). These require `-e`. |
 
+**Pictures**
+
+| Name | Definition |
+|---|---|
+| `spark`, `sparkN` | a sparkline: a 10-bin (or N-bin) histogram drawn with `▁▂▃▄▅▆▇█`. Empty bins are blank. |
+
 Percentiles interpolate linearly between order statistics, which is the
 numpy and pandas default. Statistics that are undefined for the data print
 `nan`, for example `stdev` of a single value or `kurt` with fewer than 4
@@ -248,6 +270,86 @@ pair only.
     still work.
 
 `stats --list-stats` marks each statistic with the weight modes it accepts.
+
+## Grouping
+
+`-g COL` splits the rows by the value in `COL`, then computes every statistic
+for each group and column. The key column can hold text, such as filter names
+or sample IDs. Groups are listed in sorted order, numerically when every key
+is a number. Rows with no key are skipped, with a warning.
+
+```console
+$ cat bands.txt
+band flux err
+V 15.2 0.4
+B 13.1 0.5
+R 17.0 0.6
+V 14.8 0.3
+B 12.7 0.4
+R 16.4 0.5
+V 15.5 0.5
+B 13.4 0.6
+R 16.9 0.4
+$ stats -f bands.txt -g band -c flux n mean stderr
+band column          n       mean     stderr
+B    flux            3      13.07     0.2028
+R    flux            3      16.77     0.1856
+V    flux            3      15.17     0.2028
+
+$ stats -f bands.txt -g band -c flux -e err mean stderr rchi2
+band column       mean     stderr      rchi2
+B    flux        12.97     0.2771     0.5184
+R    flux        16.77     0.2771     0.4001
+V    flux        15.05     0.2164     0.8225
+```
+
+Grouping combines with `-x`, `-w`, `-e`, `--hist`, `--ci` and every output
+format. In csv and json output the group appears as its own field.
+
+## Histograms
+
+`--hist` prints a histogram of each column. With `-F csv`, `tsv` or `json`
+you get the plain `lo, hi, count` rows, without bars. With `-g`, each column
+uses the same bin edges for every group, so the histograms can be compared.
+With `-w`, the counts are sums of weights.
+
+```console
+$ seq 1 50 | awk '{print $1*$1 % 37}' | stats --hist --bins 6
+        lo         hi      count
+         0          6          9  ████████████████████████████████▊
+         6         12         11  ████████████████████████████████████████
+        12         18          6  █████████████████████▉
+        18         24          3  ██████████▉
+        24         30         11  ████████████████████████████████████████
+        30         36         10  ████████████████████████████████████▍
+
+$ seq 1 50 | awk '{print $1*$1 % 37}' | stats n mean spark
+         n       mean      spark
+        50      17.86 ▆▆▆▅▃▃▃█▂█
+```
+
+## Bootstrap confidence intervals
+
+`--ci LEVEL` adds a `STAT_lo` and `STAT_hi` column after each statistic.
+These give a percentile-bootstrap interval, computed as follows:
+
+1. Rows are resampled with replacement `--bootstrap` times (default 1000).
+   Each row's weight and reference value travel with it.
+2. The statistic is recomputed on each resample.
+3. The interval is the central LEVEL% of those values.
+
+This works for any numeric statistic, including the fit statistics.
+
+```console
+$ seq 1 50 | awk '{print $1*$1 % 37}' | stats --ci 95 --seed 1 mean median
+      mean    mean_lo    mean_hi     median  median_lo  median_hi
+     17.86      14.62      20.96         16         11       25.5
+```
+
+Use `--seed` to get the same intervals on every run. Within a group, every
+column sees the same resampled rows. The cost grows with the number of rows
+times the number of resamples: about 1.6 s for 100k rows and 1000 resamples,
+and there's a warning when it's likely to be slow.
 
 ## findgen
 
