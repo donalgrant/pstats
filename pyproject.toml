@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stats-cli"
-version = "0.2.0"
+version = "1.0.0"
 description = "Column statistics for whitespace-delimited numeric data, from the command line"
 readme = "README.md"
 license = "MIT"
@@ -13,6 +13,7 @@ authors = [{ name = "David A. Imel" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23"]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
