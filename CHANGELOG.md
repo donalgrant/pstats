@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1 (2026-09-27)
+
+This release has no code changes. It republishes the package so that the
+PyPI project page shows the current README.
+
+- **Docs:** the README now installs from PyPI (`pipx install stats-cli`) and
+  explains how `findgen` relates to `seq`.
+- **Packaging:** added a release workflow that publishes to PyPI through
+  trusted publishing. Added Changelog and Issues links to the project
+  metadata. The source distribution no longer includes the `.github`
+  directory.
+
 ## 1.0.0 (2026-09-27)
 
 This is the first packaged release.
