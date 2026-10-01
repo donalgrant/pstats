@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stats-cli"
-version = "1.0.1"
+version = "1.1.0"
 description = "Column statistics for whitespace-delimited numeric data, from the command line"
 readme = "README.md"
 license = "MIT"
