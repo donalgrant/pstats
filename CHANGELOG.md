@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- **`--ci` with `-g`:** each group's bootstrap is now seeded from `--seed`
+  and the group's key, not its position among the groups. Adding or removing
+  other groups no longer changes a group's intervals. With `-g` and a given
+  `--seed`, intervals differ from 1.0.x; without `-g` they are unchanged.
+
 ### Documentation
 
 - A design guide for developers, [How stats-cli is built](docs/DESIGN.md),

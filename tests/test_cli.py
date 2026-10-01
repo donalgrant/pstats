@@ -310,6 +310,25 @@ def test_ci_columns(run):
     assert float(row[1]) <= 3.5 <= float(row[2])
 
 
+def test_ci_ungrouped_seed_unchanged(run):
+    """Intervals without -g are the same as before groups were seeded by key."""
+    _, out, _ = run(
+        ["--ci", "95", "--seed", "1", "-nh", "mean"], "".join(f"{i}\n" for i in range(1, 101))
+    )
+    assert out.split() == ["50.5", "44.62", "55.92"]
+
+
+def test_ci_group_seed_depends_on_key_not_position(run):
+    b = "".join(f"b {i * i % 37}\n" for i in range(1, 51))
+    a = "".join(f"a {i}\n" for i in range(1, 21))
+    args = ["-g", "1", "--ci", "90", "--seed", "3", "-nh", "mean"]
+    alone = run(args, b)[1].splitlines()
+    together = run(args, a + b)[1].splitlines()
+    assert together[1] == alone[0]  # b's interval is unchanged by adding group a
+    other = run(["-g", "1", "--ci", "90", "--seed", "3", "-nh", "mean"], b.replace("b ", "c "))
+    assert other[1].split()[2:] != alone[0].split()[2:]  # a different key, different resamples
+
+
 def test_ci_reproducible(run):
     args = ["--ci", "95", "--seed", "7", "--bootstrap", "100", "-nh", "median"]
     assert run(args, "1\n5\n2\n8\n3\n")[1] == run(args, "1\n5\n2\n8\n3\n")[1]

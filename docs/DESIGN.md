@@ -440,12 +440,14 @@ Three details matter:
   (The first version drew from all rows. Resamples then included missing
   values, came out smaller, and the intervals were too wide. A review found
   this; see section 12.)
-- **Reproducibility.** The random generator for the g-th group is seeded
-  with `[seed, g]` (numpy's `SeedSequence` accepts a list), so the same
-  input with the same `--seed` gives the same intervals. Each group gets its
-  own independent stream. Note that g is the group's *position* in sorted
-  order. Adding a group that sorts earlier shifts the others' positions,
-  and so changes their intervals slightly (exercise 7).
+- **Reproducibility.** Each group's random generator is seeded from
+  `--seed` and the group's **key** (`cli._seed`), never its position, and
+  numpy's `SeedSequence` accepts the list. So the same `--seed` gives the
+  same intervals, and adding or removing other groups doesn't change a
+  group's interval. (Before 1.1.0 the seed was `[seed, g]`, with g the
+  group's position in sorted order, so a new group that sorted first moved
+  every other group's interval slightly.) Without `-g` the seed is still
+  `[seed, 0]`, so ungrouped intervals are unchanged.
 
 ---
 
@@ -602,6 +604,11 @@ GitHub release publishes to PyPI, both through trusted publishing.
   (`test_wider_rows_add_columns_whatever_the_options`). *When an option
   takes a different path through the code, test that the common behavior is
   the same on both paths.*
+- **A seed tied to position.** The bootstrap seeded group g with
+  `[seed, g]`, so adding a group that sorted first changed every other
+  group's interval with the same `--seed`. It was found while writing this
+  guide. Seeds now come from the group's key. *Derive a random stream from
+  the identity of what it's for, not from where it falls in a list.*
 - **An option accepted and ignored.** `-F json -T` printed untransposed
   JSON. It now gives one record per statistic. *Every combination of output
   options needs a test, or an error.*
@@ -632,10 +639,9 @@ GitHub release publishes to PyPI, both through trusted publishing.
    that they give the same number of rows. Which rules must the two parsers
    share for that check to hold? Construct an input that would break it if
    `_split` didn't drop the text after `#`.
-7. **Seeds.** Show that adding a group that sorts first (say, `a` before
-   `b`) changes `b`'s `--ci` interval with the same `--seed`. Change the
-   seeding so that each group's interval depends only on its own key and
-   data. (Hint: derive the seed from the key's bytes, not its position.)
-   Is the change worth making?
+7. **Seeds.** `cli._seed` turns a key into an integer by putting a `1` byte
+   in front of its UTF-8 bytes. Why the leading byte? (Hint: compare the keys
+   `"a"` and `"\x00a"` without it.) Why is the ungrouped seed `[seed, 0]`
+   and the grouped one three numbers long?
 8. **A new output format.** Add `-F md` (a Markdown table). How many
    modules change? What does that say about the layering?
