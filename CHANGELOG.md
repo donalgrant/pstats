@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-09-30)
+
+Bootstrap intervals for groups no longer depend on which other groups are
+present, and there is a design guide for developers.
 
 ### Changed
 
@@ -20,6 +23,11 @@
 - The README no longer says that plain statistic names can't end in a digit
   (`r2` does); the rule is that a name mustn't also read as a parameterized
   request.
+
+### Packaging
+
+- The project links (repository, changelog, issues) and the README's install
+  command point to the renamed repository, `donalgrant/stats-cli`.
 
 ## 1.0.1 (2026-09-27)
 
