@@ -423,7 +423,7 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
             warn(f"bootstrap: {args.bootstrap} resamples of {table.data.shape[0]} rows may be slow")
 
         labels, values = [], []
-        for g, (key, idx) in enumerate(grouped):
+        for key, idx in grouped:
             w, x = subset(weights, idx), subset(ref, idx)
             for label, col in zip(table.labels, columns, strict=True):
                 y = col[idx]
@@ -432,10 +432,9 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
                     info(f"{label}: skipped {y.size - sample.nrows} row(s) with missing values")
                 row = [r(sample) for r in requests]
                 if args.ci is not None:
-                    # one seed per group, so reruns with --seed are reproducible
                     cis = iter(
                         analysis.bootstrap(
-                            numeric, y, w, mode, x, args.ci, args.bootstrap, [seed, g]
+                            numeric, y, w, mode, x, args.ci, args.bootstrap, _seed(seed, key)
                         )
                     )
                     row = [
@@ -449,6 +448,19 @@ def main(argv: Sequence[str] | None = None, registry: Registry = BUILTIN) -> int
     if text:
         print(text)
     return EXIT_OK
+
+
+def _seed(seed: int, key: str | None) -> list[int]:
+    """The bootstrap seed for one group: from --seed and the group's key.
+
+    It depends on the key rather than the group's position, so that adding or
+    removing other groups doesn't change a group's intervals. Without -g the
+    seed is [seed, 0], as before. The key's bytes, behind a leading 1 byte,
+    make an integer that differs for every key.
+    """
+    if key is None:
+        return [seed, 0]
+    return [seed, 1, int.from_bytes(b"\x01" + key.encode("utf-8"), "big")]
 
 
 def _weights(roles, mode):
