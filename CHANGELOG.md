@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- A user guide, [docs/guide.md](docs/guide.md), with worked examples
+  throughout. It starts with a first session, then covers input, choosing
+  statistics, the statistics' definitions, output formats, fits, weights and
+  measurement errors, groups, histograms, confidence intervals, recipes,
+  errors and exit status, `findgen`, and a full option reference.
+- The README is now an overview with links to the guide. Its reference
+  sections moved into the guide.
+- The examples in the README and the guide run as tests
+  (`tests/test_docs.py`), so they always show what `stats` prints.
+
 ## 1.1.0 (2026-09-30)
 
 Bootstrap intervals for groups no longer depend on which other groups are
