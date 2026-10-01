@@ -384,10 +384,17 @@ $ .venv/bin/pytest          # tests, including golden-output checks against the 
 $ .venv/bin/ruff check . && .venv/bin/ruff format --check .
 ```
 
-To add a statistic, register a `Stat` in `src/stats_cli/stats.py`. Plain stat
-names must not end in a digit. A parameterized family is registered by its
-base name (`q`) with `param=` set. `Sample` caches the mean, deviations and
-standard deviation, so they're computed once per column.
+To add a statistic, register a `Stat` in `src/stats_cli/stats.py`. A plain
+name may end in digits (`r2`) only if it can't also be read as a request for
+a parameterized family; the registry rejects such a clash. A parameterized
+family is registered by its base name (`q`) with `param=` set. `Sample`
+caches the mean, deviations and standard deviation, so they're computed once
+per column.
+
+[How stats-cli is built](https://github.com/donalgrant/stats-cli/blob/main/docs/DESIGN.md)
+describes the design for developers: the registry, the shared sample, the
+weighting rules, input and output, the tests, and every change from the
+original `pstats.py`, with the reasons.
 
 ## License
 

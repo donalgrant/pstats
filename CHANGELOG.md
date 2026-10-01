@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- A design guide for developers, [How stats-cli is built](docs/DESIGN.md),
+  explains how the package works and why: the statistics registry, the
+  shared `Sample`, frequency weights as replication and measurement errors
+  as a separate mode, the fast and careful input parsers, output, grouping,
+  histograms and the bootstrap, and the tests. It lists every change from the
+  original `pstats.py` with its reason, and ends with exercises.
+- The README no longer says that plain statistic names can't end in a digit
+  (`r2` does); the rule is that a name mustn't also read as a parameterized
+  request.
+
 ## 1.0.1 (2026-09-27)
 
 This release has no code changes. It republishes the package so that the
