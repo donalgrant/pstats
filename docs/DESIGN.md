@@ -507,8 +507,8 @@ was renamed to match.
 `findgen` (named after IDL's FINDGEN) prints `offset, offset+step, ...`. It
 builds a `range`, reverses it by slicing (`seq[::-1]` is still a `range`, so
 it is never turned into a list), and writes in chunks of 65,536 lines, which
-is fast for large N. `--step` is new. The README explains how it relates to
-`seq`.
+is fast for large N. `--step` is new. The user guide explains how it relates
+to `seq`.
 
 ---
 
@@ -571,6 +571,12 @@ The tests (`tests/`, about 310 of them) are in layers.
 - **Units** for `io`, `output` and `analysis`. For example, the bootstrap
   must be reproducible with a seed, must bracket the estimate, must widen
   with a higher level, and must resample pairs for cross statistics.
+- **Docs as tests** (`test_docs.py`). Every ```` ```console ```` block in
+  the README and `docs/` runs in bash, and its output must match what the
+  block shows. A `<!-- file: NAME -->` comment before a block writes that
+  block to a file first, which is how the user guide
+  ([`docs/guide.md`](guide.md)) supplies its data. So every example in the
+  guide is known to work.
 
 CI runs `ruff check`, `ruff format --check` and the tests on Python 3.10
 through 3.13. The release workflow builds from a tag that must match the
